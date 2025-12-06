@@ -1,24 +1,19 @@
 from fastapi import FastAPI
 import paho.mqtt.client as mqtt
 import json
-import asyncio
 from identity_provider import IdentityProvider
 
-# --- Initialize Identity ---
-# This will lock "client_1" on first run, "client_2" on second, etc.
+# --- Identity ---
 id_provider = IdentityProvider()
 my_identity = id_provider.acquire_identity()
 
 AGENT_ID = my_identity["client_id"]
-TENANT_ID = my_identity["tenant_id"]
+TENANT_ID = "tenant-cp"
 MY_GROUPS = my_identity["groups"]
-MY_TOPIC = f"sase/{TENANT_ID}/node/{AGENT_ID}"
+MY_PRIVATE_TOPIC = f"sase/{TENANT_ID}/node/{AGENT_ID}"
 
 app = FastAPI()
 
-# --- MQTT Setup with Persistence ---
-# clean_session=False is CRITICAL. It tells the broker:
-# "If I disconnect, keep my messages in a queue until I come back."
 mqtt_client = mqtt.Client(
     mqtt.CallbackAPIVersion.VERSION2, 
     client_id=AGENT_ID, 
@@ -26,54 +21,76 @@ mqtt_client = mqtt.Client(
 )
 
 def on_connect(client, userdata, flags, reason_code, properties):
-    # FIX: Access session_present as an attribute, not a dictionary key
+    # Fix for Paho v2 flag access
     session_present = flags.session_present
     print(f"[{AGENT_ID}] Connected! (Session Present: {session_present})")
     
-    # Subscribe with QoS 1 (Guaranteed Delivery)
-    client.subscribe(MY_TOPIC, qos=1)
+    # 1. ALWAYS subscribe to private channel
+    client.subscribe(MY_PRIVATE_TOPIC, qos=1)
+
+    # 2. Check Local Disk for Segments
+    saved_segments = id_provider.data.get("assigned_segments", [])
     
-    # Only bootstrap if we are new or lost session (optional logic)
-    # For this POC, we send bootstrap every time to force a refresh
-    payload = {
-        "request_id": "req-init",
-        "agent_id": AGENT_ID,
-        "tenant_id": TENANT_ID,
-        "context": {
-            "user_id": f"user-of-{AGENT_ID}",
-            "groups": MY_GROUPS,
-            "location": "Tel-Aviv"
+    if saved_segments:
+        print(f"[{AGENT_ID}] 💾 Found {len(saved_segments)} segments on disk.")
+        for seg in saved_segments:
+            topic = f"sase/{TENANT_ID}/segment/{seg}"
+            client.subscribe(topic, qos=1)
+            print(f"   ↪ Resubscribed to: {topic} (QoS 1)")
+        
+        print(f"[{AGENT_ID}] Skipping Bootstrap (Using Cached Policy)")
+        print(f"[{AGENT_ID}] Waiting for queued messages...")
+        
+    else:
+        # 3. No segments on disk? Bootstrap!
+        payload = {
+            "request_id": "init",
+            "agent_id": AGENT_ID,
+            "tenant_id": TENANT_ID,
+            "context": {"user_id": "u1", "groups": MY_GROUPS, "location": "TLV"}
         }
-    }
-    client.publish("client_requests", json.dumps(payload))
-    print(f"[{AGENT_ID}] Sent Bootstrap -> 'client_requests'")
+        client.publish("client_requests", json.dumps(payload))
+        print(f"[{AGENT_ID}] 🆕 Disk Empty -> Sent Bootstrap Request")
 
 def on_message(client, userdata, msg):
-    print(f"\n✨ [{AGENT_ID}] MESSAGE RECEIVED ✨")
-    print(f"   Topic: {msg.topic}")
     try:
-        data = json.loads(msg.payload.decode())
-        print(f"   Payload: {json.dumps(data, indent=2)}")
+        raw_payload = msg.payload.decode()
+        data = json.loads(raw_payload)
         
-        # Update local disk state
-        if "assigned_segments" in data:
-            id_provider.update_segments(data["assigned_segments"])
+        # CASE 1: Bootstrap Response (Private)
+        if msg.topic == MY_PRIVATE_TOPIC:
+            print(f"\n [{AGENT_ID}] BOOTSTRAP RESPONSE RECEIVED ✨")
             
-    except:
-        print(f"   Payload: {msg.payload.decode()}")
-    print("-" * 40)
+            if 'assigned_segments' in data:
+                print(f"   Segments: {data['assigned_segments']}")
+                
+                # Show the versions we just got
+                versions = data.get('segment_versions', {})
+                print(f"   Current Versions: {json.dumps(versions, indent=4)}")
+                
+                id_provider.update_segments(data['assigned_segments'])
+                
+            # Subscribe to new topics
+            topics = data.get("segment_topics", [])
+            for topic in topics:
+                client.subscribe(topic, qos=1)
+                print(f"   Subscribed to: {topic}")
+
+        # CASE 2: Segment Update
+        elif "segment" in msg.topic:
+            print(f"\n [{AGENT_ID}] UPDATE from {msg.topic}")
+            print(f"   Version: {data.get('version', 'unknown')}")
+
+    except Exception as e:
+        print(f"Error parsing msg: {e}")
 
 @app.on_event("startup")
 async def startup():
-    print(f"\n=== AGENT STARTED: {AGENT_ID} ===")
-    print(f"   Identity loaded from disk.")
-    print(f"   Groups: {MY_GROUPS}")
-    
+    print(f"\n=== AGENT {AGENT_ID} STARTING ===")
     mqtt_client.on_connect = on_connect
     mqtt_client.on_message = on_message
-    
     try:
         mqtt_client.connect("localhost", 1883, 60)
         mqtt_client.loop_start()
-    except Exception as e:
-        print(f"Broker connection failed: {e}")
+    except:
+        print("Broker connection failed.")

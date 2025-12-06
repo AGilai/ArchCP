@@ -2,12 +2,11 @@ import json
 import os
 import fcntl
 import random
-from typing import Dict, Tuple, List
+from typing import Dict, List
 
-REGISTRY_FILE = "clients_state.json"
+# Each agent gets its own file in this directory
+STORAGE_DIR = "./agent_storage"
 LOCK_DIR = "./locks"
-
-# Possible groups to assign randomly
 ALL_GROUPS = ["finance", "hr", "dev", "sales", "it"]
 
 class IdentityProvider:
@@ -15,78 +14,79 @@ class IdentityProvider:
         self.lock_file = None
         self.client_id = None
         self.data = {}
+        self.my_file_path = None
         
         # Ensure directories exist
         os.makedirs(LOCK_DIR, exist_ok=True)
-        if not os.path.exists(REGISTRY_FILE):
-            with open(REGISTRY_FILE, "w") as f:
-                json.dump({}, f)
+        os.makedirs(STORAGE_DIR, exist_ok=True)
 
     def acquire_identity(self) -> Dict:
-        """Finds the first available client ID or creates a new one."""
+        """Finds the first available client ID by trying to lock files sequentially."""
         i = 1
         while True:
             candidate_id = f"client_{i}"
             lock_path = os.path.join(LOCK_DIR, f"{candidate_id}.lock")
             
-            # 1. Try to open/create the lock file
+            # Try to acquire an exclusive lock on this ID
             fp = open(lock_path, 'w')
-            
             try:
-                # 2. Try to acquire an exclusive lock (non-blocking)
                 fcntl.lockf(fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 
-                # SUCCESS: We successfully locked this ID. It is ours now.
+                # Success - we own this ID now
                 self.lock_file = fp
                 self.client_id = candidate_id
+                self.my_file_path = os.path.join(STORAGE_DIR, f"{candidate_id}.json")
                 print(f"[Identity] Acquired Identity: {candidate_id}")
-                
-                # 3. Load or Init State
-                return self._load_or_create_state(candidate_id)
+                return self._load_or_create_state()
                 
             except IOError:
-                # FAILURE: Someone else is running this client. Try next.
+                # Locked by another process, try next ID
                 fp.close()
                 i += 1
 
-    def _load_or_create_state(self, client_id: str) -> Dict:
-        """Reads JSON registry to get persistent groups/segments."""
-        with open(REGISTRY_FILE, "r") as f:
-            full_registry = json.load(f)
-        
-        if client_id in full_registry:
-            print(f"[Identity] Resuming previous state for {client_id}")
-            self.data = full_registry[client_id]
+    def _load_or_create_state(self) -> Dict:
+        """Loads THIS agent's specific JSON file."""
+        if os.path.exists(self.my_file_path):
+            print(f"[Identity] Loading state from {self.my_file_path}")
+            try:
+                with open(self.my_file_path, "r") as f:
+                    self.data = json.load(f)
+            except json.JSONDecodeError:
+                # Handle corrupted file
+                print(f"[Identity] File corrupted, resetting state.")
+                self._init_new_state()
         else:
-            print(f"[Identity] Initializing NEW state for {client_id}")
-            # Generate random groups
-            groups = random.sample(ALL_GROUPS, 3)
-            self.data = {
-                "client_id": client_id,
-                "tenant_id": "tenant-cp",
-                "groups": groups,
-                "assigned_segments": [] # Starts empty until policy arrives
-            }
-            self._save_state(full_registry)
+            print(f"[Identity] No existing state. Initializing new.")
+            self._init_new_state()
             
         return self.data
 
-    def update_segments(self, segments: List[str]):
-        """Updates the local registry when a new policy arrives."""
-        with open(REGISTRY_FILE, "r") as f:
-            full_registry = json.load(f)
-        
-        if self.client_id in full_registry:
-            full_registry[self.client_id]["assigned_segments"] = segments
-            self.data["assigned_segments"] = segments
-            self._save_state(full_registry)
-            print("[Identity] Persisted new segments to disk.")
+    def _init_new_state(self):
+        self.data = {
+            "client_id": self.client_id,
+            "tenant_id": "tenant-cp",
+            "groups": random.sample(ALL_GROUPS, 3),
+            "assigned_segments": [] 
+        }
+        self._save_to_disk()
 
-    def _save_state(self, registry):
-        with open(REGISTRY_FILE, "w") as f:
-            json.dump(registry, f, indent=4)
+    def update_segments(self, segments: List[str]):
+        """Updates the local state and writes to the specific agent file."""
+        print(f"[Identity] Writing segments {segments} to {self.my_file_path}")
+        self.data["assigned_segments"] = segments
+        self._save_to_disk()
+
+    def _save_to_disk(self):
+        """Atomic write to the specific agent file."""
+        temp_file = self.my_file_path + ".tmp"
+        with open(temp_file, "w") as f:
+            json.dump(self.data, f, indent=4)
+            f.flush()
+            os.fsync(f.fileno()) # Force write to physical disk
+        
+        os.replace(temp_file, self.my_file_path)
+        print(f"[Identity] 💾 Saved.")
 
     def release(self):
-        """Release the lock on exit."""
         if self.lock_file:
-            self.lock_file.close() # OS releases lock automatically
+            self.lock_file.close()

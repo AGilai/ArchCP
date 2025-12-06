@@ -1,0 +1,15 @@
+{
+    "client_id": "client_6",
+    "tenant_id": "tenant-cp",
+    "groups": [
+        "hr",
+        "it",
+        "finance"
+    ],
+    "assigned_segments": [
+        "seg-finance-confidential",
+        "seg-admin-root",
+        "seg-global",
+        "seg-hr-data-privacy"
+    ]
+}

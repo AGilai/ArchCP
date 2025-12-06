@@ -1,0 +1,15 @@
+{
+    "client_id": "client_7",
+    "tenant_id": "tenant-cp",
+    "groups": [
+        "it",
+        "sales",
+        "dev"
+    ],
+    "assigned_segments": [
+        "seg-admin-root",
+        "seg-developers-prod-access",
+        "seg-global",
+        "seg-sales-crm"
+    ]
+}
