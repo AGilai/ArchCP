@@ -1,66 +1,77 @@
-from typing import List
-from ..core.domain_models import BootstrapRequest, ProvisioningManifest, UserContext
-from ..core.interfaces import IPolicyRepository, IMessageBroker
+import json
+from ..core.domain_models import ProvisioningRequest, PolicyResponse
+from ..core.entities import AgentStateEntity
+from ..adapters.repositories import AgentRepository, RuleRepository, SegmentStateRepository
+from ..adapters.mqtt_publisher import MqttPublisher
 
-class ProvisioningWorker:
-    def __init__(self, repo: IPolicyRepository, broker: IMessageBroker):
-        self.repo = repo
-        self.broker = broker
+class ProvisioningOrchestrator:
+    """
+    The CORE LOGIC of the Distribution Plane.
+    """
+    def __init__(self, 
+                 agent_repo: AgentRepository, 
+                 rule_repo: RuleRepository, 
+                 seg_repo: SegmentStateRepository,
+                 publisher: MqttPublisher,
+                 tenant_id: str):
+        self.agent_repo = agent_repo
+        self.rule_repo = rule_repo
+        self.seg_repo = seg_repo
+        self.publisher = publisher
+        self.tenant_id = tenant_id
 
-    def process_bootstrap_request(self, tenant_id: str, request: BootstrapRequest):
-        print(f"\n[Worker] Processing Bootstrap for Agent: {request.agent_id}...")
-
-        # Step 1: Context Extraction (Simulating JWT Validation)
-        # In production, we would verify the JWT signature here.
-        user_context = request.mock_decoded_context
-        if not user_context:
-            raise ValueError("Invalid Context")
+    def process_bootstrap(self, request: ProvisioningRequest):
+        # ... (This method remains exactly the same as before) ...
+        print(f"\n[Orchestrator] Handling Bootstrap for {request.agent_id}")
         
-        print(f"   > User Context Identified: {user_context.groups} in {user_context.location}")
-
-        # Step 2: Segmentation Logic (Phase 2 of HLD)
-        # Calculate which segments this user belongs to based on rules
-        active_segments = self._evaluate_segments(user_context)
-        print(f"   > Calculated Segments: {active_segments}")
-
-        # Step 3: Fetch Artifacts (Phase 3 of HLD - Manifest Generation)
-        # Get the specific S3 URLs for these segments
-        artifacts = self.repo.get_latest_artifacts(active_segments)
+        assigned_segments = ["seg-global"]
+        for group in request.context.groups:
+            rule = self.rule_repo.find_rule_for_group(group)
+            if rule:
+                assigned_segments.append(rule.target_segment)
         
-        # Step 4: Construct Manifest
-        # Define which topics the agent should listen to
-        subscriptions = [f"sase/{tenant_id}/policy/segment/{seg}" for seg in active_segments]
-        subscriptions.append(f"sase/{tenant_id}/node/{request.agent_id}") # Targeted channel
+        assigned_segments = list(set(assigned_segments))
 
-        manifest = ProvisioningManifest(
-            assigned_segments=active_segments,
-            artifacts=artifacts,
-            mqtt_subscriptions=subscriptions
+        agent_entity = AgentStateEntity(
+            agent_id=request.agent_id,
+            tenant_id=self.tenant_id,
+            assigned_segments=assigned_segments,
+            status="ONLINE"
+        )
+        self.agent_repo.upsert_agent(agent_entity)
+
+        versions_map = self.seg_repo.get_versions_map(assigned_segments)
+        
+        segment_topics = [f"sase/{self.tenant_id}/segment/{seg}" for seg in assigned_segments]
+        
+        response = PolicyResponse(
+            status="SUCCESS",
+            assigned_segments=assigned_segments,
+            segment_topics=segment_topics,
+            segment_versions=versions_map,
+            download_url="http://cdn.sase.com/init.bin"
         )
 
-        # Step 5: Signaling (Push to Agent)
-        self.broker.publish_manifest(tenant_id, request.agent_id, manifest.model_dump())
-        print("[Worker] Process Complete.\n")
+        self.publisher.send_private_response(request.agent_id, self.tenant_id, response.model_dump())
+        print(f"[Orchestrator] ✅ Sent Bootstrap Response to {request.agent_id}")
 
-    def _evaluate_segments(self, context: UserContext) -> List[str]:
-        """Matches user attributes against repository rules."""
-        rules = self.repo.get_segmentation_rules()
-        assigned = []
+    def process_new_version_notification(self, segment_id: str, new_version: int):
+        """
+        Flow 2: React to a new version event.
+        Logic: Create Payload -> Broadcast
+        (Note: We do NOT increment the DB here. We assume the Admin/Simulator already did that.)
+        """
+        print(f"[Orchestrator] 🔔 Received Trigger: {segment_id} is now v{new_version}")
+
+        # 1. Logic: Create the Update Payload
+        # In a real system, we might fetch the specific policy blob from S3 here using the version
+        payload = {
+            "type": "SEGMENT_UPDATE",
+            "segment": segment_id,
+            "version": new_version,
+            "payload_content": f"blob_{segment_id}_v{new_version}"
+        }
         
-        # Always add default/global segment
-        assigned.append("global-segment")
-
-        for rule in rules:
-            match_group = True
-            match_loc = True
-
-            if rule.required_group and rule.required_group not in context.groups:
-                match_group = False
-            
-            if rule.required_location and rule.required_location != context.location:
-                match_loc = False
-
-            if match_group and match_loc:
-                assigned.append(rule.target_segment_id)
-        
-        return list(set(assigned))
+        # 2. Signaling: Broadcast to Segment Topic
+        self.publisher.broadcast_update(self.tenant_id, segment_id, payload)
+        print(f"[Orchestrator] 📡 Broadcasted Update v{new_version} to {segment_id}")

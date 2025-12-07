@@ -1,11 +1,16 @@
 import boto3
 import json
+from ..core.config import settings
 
 class SQSConsumer:
     def __init__(self):
-        self.sqs = boto3.client('sqs', endpoint_url='http://localhost:4566', region_name='us-east-1')
-        self.queue_url = "http://localhost:4566/000000000000/provisioning-queue"
-
+        self.sqs = boto3.client(
+            'sqs', 
+            endpoint_url=settings.SQS_ENDPOINT_URL, 
+            region_name=settings.AWS_REGION
+        )
+        self.queue_url = settings.SQS_QUEUE_URL
+        
     def start_listening(self, callback):
         print("[Worker] Listening for SQS messages...")
         while True:
