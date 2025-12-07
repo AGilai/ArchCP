@@ -2,13 +2,12 @@
     "client_id": "client_2",
     "tenant_id": "tenant-cp",
     "groups": [
-        "finance",
-        "sales",
-        "hr"
+        "dev",
+        "hr",
+        "sales"
     ],
     "assigned_segments": [
-        "seg-finance-confidential",
-        "seg-global",
+        "seg-developers-prod-access",
         "seg-hr-data-privacy",
         "seg-sales-crm"
     ]

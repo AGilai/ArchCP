@@ -1,6 +1,9 @@
 import boto3
 import json
 from ..core.config import settings
+from provisioning_service.core.logger import get_logger
+
+logger = get_logger("SQSConsumer")
 
 class SQSConsumer:
     def __init__(self):
@@ -10,9 +13,9 @@ class SQSConsumer:
             region_name=settings.AWS_REGION
         )
         self.queue_url = settings.SQS_QUEUE_URL
-        
+
     def start_listening(self, callback):
-        print("[Worker] Listening for SQS messages...")
+        logger.info("Listening for SQS messages...")
         while True:
             response = self.sqs.receive_message(
                 QueueUrl=self.queue_url, MaxNumberOfMessages=1, WaitTimeSeconds=5
@@ -24,4 +27,4 @@ class SQSConsumer:
                         callback(body)
                         self.sqs.delete_message(QueueUrl=self.queue_url, ReceiptHandle=msg['ReceiptHandle'])
                     except Exception as e:
-                        print(f"[!] Error: {e}")
+                        logger.error(f"Error: {e}")

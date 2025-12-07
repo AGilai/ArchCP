@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     # Feature Flags
     ENABLE_SIMULATOR: bool = True
 
+    # Logging
+    LOG_LEVEL: str = "INFO"
+
     class Config:
         # Pydantic will read this file automatically if it exists
         env_file = ".env"

@@ -3,6 +3,9 @@ import os
 import fcntl
 import random
 from typing import Dict, List
+from provisioning_service.core.logger import get_logger
+
+logger = get_logger("IdentityProvider") 
 
 # Each agent gets its own file in this directory
 STORAGE_DIR = "./agent_storage"
@@ -36,7 +39,7 @@ class IdentityProvider:
                 self.lock_file = fp
                 self.client_id = candidate_id
                 self.my_file_path = os.path.join(STORAGE_DIR, f"{candidate_id}.json")
-                print(f"[Identity] Acquired Identity: {candidate_id}")
+                logger.info(f"Acquired Identity: {candidate_id}")
                 return self._load_or_create_state()
                 
             except IOError:
@@ -47,16 +50,16 @@ class IdentityProvider:
     def _load_or_create_state(self) -> Dict:
         """Loads THIS agent's specific JSON file."""
         if os.path.exists(self.my_file_path):
-            print(f"[Identity] Loading state from {self.my_file_path}")
+            logger.info(f"Loading state from {self.my_file_path}")
             try:
                 with open(self.my_file_path, "r") as f:
                     self.data = json.load(f)
             except json.JSONDecodeError:
                 # Handle corrupted file
-                print(f"[Identity] File corrupted, resetting state.")
+                logger.error("File corrupted, resetting state.")
                 self._init_new_state()
         else:
-            print(f"[Identity] No existing state. Initializing new.")
+            logger.info("No existing state. Initializing new.")
             self._init_new_state()
             
         return self.data
@@ -72,7 +75,7 @@ class IdentityProvider:
 
     def update_segments(self, segments: List[str]):
         """Updates the local state and writes to the specific agent file."""
-        print(f"[Identity] Writing segments {segments} to {self.my_file_path}")
+        logger.info(f"Writing segments {segments} to {self.my_file_path}")
         self.data["assigned_segments"] = segments
         self._save_to_disk()
 
@@ -85,7 +88,7 @@ class IdentityProvider:
             os.fsync(f.fileno()) # Force write to physical disk
         
         os.replace(temp_file, self.my_file_path)
-        print(f"[Identity] 💾 Saved.")
+        logger.info("Saved.")
 
     def release(self):
         if self.lock_file:

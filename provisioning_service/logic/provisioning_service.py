@@ -16,9 +16,9 @@ class ProvisioningService:
         2. Persist State (Repo Call)
         3. Fetch Versions (Repo Call)
         """
-        # 1. Business Logic: Map Groups -> Segments
-        assigned_segments = ["seg-global"] # Default policy
         
+        # 1. Business Logic: Determine assigned segments
+        assigned_segments = []
         for group in context.groups:
             rule = self.rule_repo.find_rule_for_group(group)
             if rule:

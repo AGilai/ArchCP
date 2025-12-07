@@ -1,17 +1,30 @@
-from typing import List, Dict, Optional
-from pydantic import BaseModel
+from typing import List, Dict, Optional, Literal, Union
+from pydantic import BaseModel, Field
 
+# --- Sub-Models ---
 class UserContext(BaseModel):
     user_id: str
     groups: List[str]
     location: str
 
-class ProvisioningRequest(BaseModel):
+# --- SQS Message Types ---
+
+class BootstrapPayload(BaseModel):
     request_id: str
     agent_id: str
-    tenant_id: str
     context: UserContext
 
+class UpdateTriggerPayload(BaseModel):
+    segment_id: str
+    reason: str = "SIMULATED_ADMIN_ACTION"
+
+# --- The Envelope (Polymorphic) ---
+class SQSMessage(BaseModel):
+    type: Literal["BOOTSTRAP", "UPDATE_TRIGGER"]
+    tenant_id: str
+    payload: Union[BootstrapPayload, UpdateTriggerPayload]
+
+# --- Response Model (MQTT) ---
 class PolicyResponse(BaseModel):
     status: str
     assigned_segments: List[str]

@@ -1,6 +1,9 @@
 import paho.mqtt.client as mqtt
 import json
 from ..core.config import settings
+from provisioning_service.core.logger import get_logger
+
+logger = get_logger("MqttPublisher")
 
 class MqttPublisher:
     def __init__(self):
@@ -13,10 +16,10 @@ class MqttPublisher:
         """Sends a message to a specific agent's private topic."""
         topic = f"sase/{tenant_id}/node/{agent_id}"
         self.client.publish(topic, json.dumps(payload), qos=1)
-        print(f"[MQTT] Sent Private Response to {topic}")
+        logger.info(f"Sent Private Response to {topic}")
 
     def broadcast_update(self, tenant_id: str, segment_id: str, payload: dict):
         """Broadcasts a message to all agents listening on a segment topic."""
         topic = f"sase/{tenant_id}/segment/{segment_id}"
         self.client.publish(topic, json.dumps(payload), qos=1)
-        print(f"[MQTT] Broadcasted Update to {topic}")
+        logger.info(f"Broadcasted Update to {topic}")

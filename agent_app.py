@@ -2,6 +2,9 @@ from fastapi import FastAPI
 import paho.mqtt.client as mqtt
 import json
 from identity_provider import IdentityProvider
+from provisioning_service.core.logger import get_logger
+
+logger = get_logger("AgentApp")
 
 # --- Identity ---
 id_provider = IdentityProvider()
@@ -21,10 +24,9 @@ mqtt_client = mqtt.Client(
 )
 
 def on_connect(client, userdata, flags, reason_code, properties):
-    # Fix for Paho v2 flag access
     session_present = flags.session_present
-    print(f"[{AGENT_ID}] Connected! (Session Present: {session_present})")
-    
+    logger.info(f"[{AGENT_ID}] Connected! (Session Present: {session_present})")
+
     # 1. ALWAYS subscribe to private channel
     client.subscribe(MY_PRIVATE_TOPIC, qos=1)
 
@@ -32,15 +34,15 @@ def on_connect(client, userdata, flags, reason_code, properties):
     saved_segments = id_provider.data.get("assigned_segments", [])
     
     if saved_segments:
-        print(f"[{AGENT_ID}] 💾 Found {len(saved_segments)} segments on disk.")
+        print(f"[{AGENT_ID}] Found {len(saved_segments)} segments on disk.")
         for seg in saved_segments:
             topic = f"sase/{TENANT_ID}/segment/{seg}"
             client.subscribe(topic, qos=1)
-            print(f"   ↪ Resubscribed to: {topic} (QoS 1)")
-        
-        print(f"[{AGENT_ID}] Skipping Bootstrap (Using Cached Policy)")
-        print(f"[{AGENT_ID}] Waiting for queued messages...")
-        
+            logger.info(f"   ↪ Resubscribed to: {topic} (QoS 1)")
+
+        logger.info(f"[{AGENT_ID}] Skipping Bootstrap (Using Cached Policy)")
+        logger.info(f"[{AGENT_ID}] Waiting for queued messages...")
+
     else:
         # 3. No segments on disk? Bootstrap!
         payload = {
@@ -50,7 +52,7 @@ def on_connect(client, userdata, flags, reason_code, properties):
             "context": {"user_id": "u1", "groups": MY_GROUPS, "location": "TLV"}
         }
         client.publish("client_requests", json.dumps(payload))
-        print(f"[{AGENT_ID}] 🆕 Disk Empty -> Sent Bootstrap Request")
+        logger.info(f"[{AGENT_ID}] Disk Empty -> Sent Bootstrap Request")
 
 def on_message(client, userdata, msg):
     try:
@@ -59,34 +61,35 @@ def on_message(client, userdata, msg):
         
         # CASE 1: Bootstrap Response (Private)
         if msg.topic == MY_PRIVATE_TOPIC:
-            print(f"\n [{AGENT_ID}] BOOTSTRAP RESPONSE RECEIVED ✨")
-            
+            logger.info(f"[{AGENT_ID}] BOOTSTRAP RESPONSE ✨")
+
             if 'assigned_segments' in data:
-                print(f"   Segments: {data['assigned_segments']}")
-                
-                # Show the versions we just got
-                versions = data.get('segment_versions', {})
-                print(f"   Current Versions: {json.dumps(versions, indent=4)}")
-                
+                # Save to disk
                 id_provider.update_segments(data['assigned_segments'])
-                
-            # Subscribe to new topics
+            
+            # Subscribe with Version Info
             topics = data.get("segment_topics", [])
+            versions = data.get("segment_versions", {})
+            
             for topic in topics:
+                # Extract segment ID from topic (sase/tenant/segment/SEG_ID)
+                seg_id = topic.split("/")[-1]
+                ver = versions.get(seg_id, "?")
+                download_url = data.get("download_url", "N/A")
+                
                 client.subscribe(topic, qos=1)
-                print(f"   Subscribed to: {topic}")
+                logger.info(f"Subscribed to: {topic} (Current Version: v{ver}) | Download URL: {download_url})")
 
         # CASE 2: Segment Update
         elif "segment" in msg.topic:
-            print(f"\n [{AGENT_ID}] UPDATE from {msg.topic}")
-            print(f"   Version: {data.get('version', 'unknown')}")
+            logger.info(f"[{AGENT_ID}] UPDATE from {msg.topic} | New Version: {data.get('version', 'unknown')}")
 
     except Exception as e:
-        print(f"Error parsing msg: {e}")
+        logger.error(f"Error parsing msg: {e}")
 
 @app.on_event("startup")
 async def startup():
-    print(f"\n=== AGENT {AGENT_ID} STARTING ===")
+    logger.info(f"=== AGENT {AGENT_ID} STARTING ===")
     mqtt_client.on_connect = on_connect
     mqtt_client.on_message = on_message
     try:

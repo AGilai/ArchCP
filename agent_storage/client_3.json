@@ -2,14 +2,13 @@
     "client_id": "client_3",
     "tenant_id": "tenant-cp",
     "groups": [
-        "dev",
+        "sales",
         "it",
-        "sales"
+        "hr"
     ],
     "assigned_segments": [
-        "seg-sales-crm",
         "seg-admin-root",
-        "seg-global",
-        "seg-developers-prod-access"
+        "seg-sales-crm",
+        "seg-hr-data-privacy"
     ]
 }
