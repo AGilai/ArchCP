@@ -1,6 +1,10 @@
 # Client state directories (per-client persistent data)
 .client_state/
 
+# Agent runtime files (intermediate/generated)
+agent_storage/
+locks/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -10,7 +14,10 @@ __pycache__/
 .venv/
 venv/
 ENV/
-.pyc 
+.pyc
+.lock
+
+
 
 # Docker
 .docker/

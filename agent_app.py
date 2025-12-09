@@ -3,7 +3,11 @@ import paho.mqtt.client as mqtt
 import json
 from identity_provider import IdentityProvider
 from provisioning_service.core.logger import get_logger
+import sys
 
+from provisioning_service.infra_utils import set_tab_title
+
+    
 logger = get_logger("AgentApp")
 
 # --- Identity ---
@@ -89,6 +93,7 @@ def on_message(client, userdata, msg):
 
 @app.on_event("startup")
 async def startup():
+    set_tab_title(f"Agent-{AGENT_ID}")
     logger.info(f"=== AGENT {AGENT_ID} STARTING ===")
     mqtt_client.on_connect = on_connect
     mqtt_client.on_message = on_message

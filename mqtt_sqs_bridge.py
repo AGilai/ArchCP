@@ -11,6 +11,7 @@ from provisioning_service.core.config import settings
 from provisioning_service.adapters.repositories import RuleRepository
 
 from provisioning_service.core.logger import get_logger
+from provisioning_service.infra_utils import set_tab_title
 
 # Initialize Logger
 logger = get_logger("BridgeService")
@@ -90,6 +91,8 @@ def run_simulator_loop():
 # --- Main Entry ---
 if __name__ == "__main__":
     # Start Simulator Thread
+    set_tab_title("Bridge & Simulator")
+
     sim_thread = threading.Thread(target=run_simulator_loop, daemon=True)
     sim_thread.start()
 

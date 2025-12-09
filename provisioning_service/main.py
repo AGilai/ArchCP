@@ -1,6 +1,9 @@
 import sys
 import os
 
+from provisioning_service.core.logger import get_logger
+from provisioning_service.infra_utils import set_tab_title
+
 # Ensure we can import modules if running directly
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -11,6 +14,8 @@ from provisioning_service.adapters.sqs_consumer import SQSConsumer
 from provisioning_service.adapters.mqtt_publisher import MqttPublisher
 from provisioning_service.adapters.repositories import AgentRepository, RuleRepository, SegmentStateRepository
 from provisioning_service.logic.worker import ProvisioningOrchestrator
+
+logger = get_logger("ProvisioningService")
 
 # --- Wiring Dependencies ---
 def bootstrap_app():
@@ -34,7 +39,8 @@ def bootstrap_app():
 
 # --- Message Loop ---
 def run():
-    print("[Service] Initializing Provisioning Worker...")
+    set_tab_title("Provisioning Service")
+    logger.info("Initializing Provisioning Worker...")
     orchestrator = bootstrap_app()
     consumer = SQSConsumer()
 
