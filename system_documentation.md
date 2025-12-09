@@ -91,9 +91,10 @@ When an existing agent (`client_2`) restarts, it detects its local configuration
 * **Offline Queue Processing:** `[client_2] Waiting for queued messages...` followed by a burst of updates.
 
 ![Agent Logs Bootstrap](./screenshots/Bootstrap.png)
+Figure 4: Agent `client_5` performing initial onboarding. It detects no local state, requests its configuration, caches it to disk, and subscribes to its assigned policy topics.
 
 ![Agent Logs Reconnect](./screenshots/ReconnectingClient.png)
-*Figure 4: Agent `client_2` startup sequence showing local state loading, skipping bootstrap, and receiving real-time updates (versions reaching v990).*
+*Figure 5: Agent `client_2` startup sequence showing local state loading, skipping bootstrap, and receiving real-time updates (versions reaching v990).*
 
 **Scenario 2: Real-Time Enforcement**
 Once connected, the agent receives a stream of updates pushed by the Provisioning Service. This demonstrates the system's ability to propagate changes instantly.
